@@ -1,0 +1,581 @@
+---
+title: "More Time Online? Less Peace of Mind"
+author: "Mohammed F. R. Noor"
+date: "`r Sys.Date()`"
+output: 
+  pdf_document:
+    fig_caption: yes
+    number_sections: true
+    toc: true
+    toc_depth: 2
+  html_document:
+    fig_caption: yes
+    number_sections: true
+    toc: true
+    toc_depth: 2
+    toc_float: true
+    theme: flatly
+    highlight: tango
+    code_folding: hide
+geometry: margin=1in
+fontsize: 11pt
+header-includes:
+  - \usepackage{booktabs}
+  - \usepackage{longtable}
+  - \usepackage{array}
+  - \usepackage{multirow}
+  - \usepackage{wrapfig}
+  - \usepackage{float}
+  - \usepackage{colortbl}
+  - \usepackage{pdflscape}
+  - \usepackage{tabu}
+  - \usepackage{threeparttable}
+  - \usepackage{threeparttablex}
+  - \usepackage[normalem]{ulem}
+  - \usepackage{makecell}
+  - \usepackage{xcolor}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = 'center',
+  fig.width = 6,
+  fig.height = 4.5,
+  dpi = 300,
+  out.width = "85%"
+)
+```
+
+\newpage
+
+# Introduction
+
+This capstone project explores the relationship between social media usage and mental health outcomes. The research addresses three critical questions that have emerged from contemporary digital wellness literature:
+
+1. **Does social media usage increase feelings of loneliness?**
+2. **Is comparing yourself to others on social media linked to anxiety or depression?**
+3. **Can taking breaks from social media improve mental health?**
+
+We analyze a simulated dataset based on recent peer-reviewed findings from studies published between 2022 and 2024. This approach allows us to demonstrate analytical techniques while reflecting patterns observed in real-world research.
+
+\vspace{0.5cm}
+
+# Data and Methods
+
+```{r load-libraries}
+# Load required libraries
+if (!require(tidyverse)) install.packages("tidyverse")
+if (!require(knitr)) install.packages("knitr")
+if (!require(kableExtra)) install.packages("kableExtra")
+if (!require(scales)) install.packages("scales")
+if (!require(viridis)) install.packages("viridis")
+
+library(tidyverse)
+library(knitr)
+library(kableExtra)
+library(scales)
+library(viridis)
+
+# Set ggplot theme
+theme_set(theme_minimal(base_size = 10) +
+  theme(
+    plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 10, hjust = 0.5),
+    axis.title = element_text(size = 10, face = "bold"),
+    legend.title = element_text(size = 10, face = "bold"),
+    strip.text = element_text(size = 10, face = "bold"),
+    axis.text = element_text(size = 9)
+  ))
+```
+
+```{r generate-data}
+# Generate simulated dataset
+set.seed(42)
+n <- 500
+
+# Generate correlated variables
+daily_hours <- round(rnorm(n, mean = 4.5, sd = 2.5), 1)
+daily_hours <- pmax(0.5, pmin(daily_hours, 12))  # Constrain to realistic range
+
+# Loneliness increases with daily hours (with some noise)
+loneliness_score <- pmin(10, pmax(1, 
+  2 + 0.8 * daily_hours + rnorm(n, 0, 1.5)))
+
+# Generate comparison behavior (more likely with higher usage)
+compare_prob <- plogis(-1.5 + 0.3 * daily_hours)
+compare_self <- rbinom(n, 1, compare_prob)
+
+# Depression and anxiety higher for those who compare
+depression_score <- pmin(10, pmax(1,
+  3 + 2 * compare_self + 0.3 * daily_hours + rnorm(n, 0, 1.2)))
+
+anxiety_score <- pmin(10, pmax(1,
+  2.5 + 2.2 * compare_self + 0.25 * daily_hours + rnorm(n, 0, 1.3)))
+
+# Generate break-taking behavior (more likely for those with higher scores)
+break_prob <- plogis(-2 + 0.2 * loneliness_score + 0.15 * depression_score)
+took_break <- rbinom(n, 1, break_prob)
+
+# Those who took breaks are more likely to feel better
+felt_better <- ifelse(took_break == 1, 
+                     rbinom(sum(took_break), 1, 0.75), 
+                     NA)
+
+# Create dataset
+data <- data.frame(
+  daily_hours = round(daily_hours, 1),
+  loneliness_score = round(loneliness_score, 1),
+  depression_score = round(depression_score, 1),
+  anxiety_score = round(anxiety_score, 1),
+  compare_self = compare_self,
+  took_break = took_break,
+  felt_better = felt_better
+)
+
+# Save dataset
+write_csv(data, "simulated_social_media_data.csv")
+```
+
+## Dataset Overview
+
+Our simulated dataset contains `r nrow(data)` observations with the following variables:
+
+```{r data-overview}
+# Create summary table
+summary_stats <- data %>%
+  select(daily_hours, loneliness_score, depression_score, anxiety_score) %>%
+  summarise(
+    across(everything(), list(
+      Mean = ~ round(mean(., na.rm = TRUE), 2),
+      SD = ~ round(sd(., na.rm = TRUE), 2),
+      Min = ~ round(min(., na.rm = TRUE), 1),
+      Max = ~ round(max(., na.rm = TRUE), 1)
+    ))
+  ) %>%
+  pivot_longer(everything(), names_to = "variable", values_to = "value") %>%
+  separate(variable, into = c("Variable", "Statistic"), sep = "_(?=[^_]+$)") %>%
+  pivot_wider(names_from = Statistic, values_from = value) %>%
+  mutate(
+    Variable = case_when(
+      Variable == "daily.hours" ~ "Daily Hours on Social Media",
+      Variable == "loneliness.score" ~ "Loneliness Score (1-10)",
+      Variable == "depression.score" ~ "Depression Score (1-10)",
+      Variable == "anxiety.score" ~ "Anxiety Score (1-10)"
+    )
+  )
+
+summary_stats %>%
+  kable(
+    caption = "Descriptive Statistics for Continuous Variables",
+    booktabs = TRUE,
+    align = c("c", "c", "c", "c", "c")
+  ) %>%
+  kable_styling(
+    latex_options = c("striped", "hold_position"),
+    font_size = 10,
+    position = "center"
+  )
+```
+
+```{r categorical-overview}
+# Categorical variables summary
+categorical_summary <- data %>%
+  summarise(
+    `Often Compare to Others` = paste0(sum(compare_self), " (", 
+                                      round(100 * mean(compare_self), 1), "%)"),
+    `Took Social Media Break` = paste0(sum(took_break), " (", 
+                                       round(100 * mean(took_break), 1), "%)"),
+    `Felt Better After Break` = paste0(sum(felt_better, na.rm = TRUE), " of ", 
+                                       sum(took_break), " (", 
+                                       round(100 * mean(felt_better, na.rm = TRUE), 1), "%)")
+  ) %>%
+  pivot_longer(everything(), names_to = "Variable", values_to = "Count (%)") 
+
+categorical_summary %>%
+  kable(
+    caption = "Summary of Categorical Variables",
+    booktabs = TRUE,
+    align = c("c", "c")
+  ) %>%
+  kable_styling(
+    latex_options = c("striped", "hold_position"),
+    font_size = 10,
+    position = "center"
+  )
+```
+
+\newpage
+
+# Research Question 1: Does Social Media Usage Increase Loneliness?
+
+To examine the relationship between social media usage and loneliness, we analyze the correlation between daily hours spent on social media platforms and self-reported loneliness scores.
+
+```{r q1-loneliness-plot, fig.cap="Relationship between Daily Social Media Usage and Loneliness Scores", fig.width=6, fig.height=4, out.width="80%"}
+# Create scatter plot with regression line
+p1 <- data %>%
+  ggplot(aes(x = daily_hours, y = loneliness_score)) +
+  geom_point(alpha = 0.6, color = "#2E86AB", size = 1.5) +
+  geom_smooth(method = "lm", color = "#A23B72", fill = "#A23B72", alpha = 0.2) +
+  labs(
+    title = "Social Media Usage and Loneliness",
+    subtitle = "Higher usage associated with increased loneliness",
+    x = "Daily Hours on Social Media",
+    y = "Loneliness Score (1-10)"
+  ) +
+  scale_x_continuous(breaks = seq(0, 12, 2)) +
+  scale_y_continuous(breaks = seq(0, 10, 2)) +
+  theme(
+    plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 10, hjust = 0.5),
+    axis.title = element_text(size = 10, face = "bold"),
+    axis.text = element_text(size = 9)
+  )
+
+print(p1)
+```
+
+```{r q1-correlation}
+# Calculate correlation
+cor_result <- cor.test(data$daily_hours, data$loneliness_score)
+
+# Create results table
+correlation_results <- data.frame(
+  Metric = c("Pearson Correlation", "95% Confidence Interval", "P-value", "Sample Size"),
+  Value = c(
+    round(cor_result$estimate, 3),
+    paste0("[", round(cor_result$conf.int[1], 3), ", ", round(cor_result$conf.int[2], 3), "]"),
+    ifelse(cor_result$p.value < 0.001, "< 0.001", round(cor_result$p.value, 3)),
+    nrow(data)
+  )
+)
+
+correlation_results %>%
+  kable(
+    caption = "Correlation Analysis: Social Media Usage and Loneliness",
+    booktabs = TRUE,
+    align = c("c", "c")
+  ) %>%
+  kable_styling(
+    latex_options = c("striped", "hold_position"),
+    font_size = 10,
+    position = "center"
+  )
+```
+
+**Key Finding:** There is a significant positive correlation (r = `r round(cor_result$estimate, 3)`) between daily social media usage and loneliness scores, indicating that individuals who spend more time on social media tend to report higher levels of loneliness.
+
+\newpage
+
+# Research Question 2: Is Comparing Yourself to Others Linked to Anxiety or Depression?
+
+We investigate whether individuals who frequently compare themselves to others on social media experience higher levels of anxiety and depression.
+
+```{r q2-comparison-plots, fig.cap="Mental Health Outcomes by Social Comparison Behavior", fig.width=6.5, fig.height=4, out.width="85%"}
+# Create comparison data
+comparison_data <- data %>%
+  mutate(
+    comparison_behavior = ifelse(compare_self == 1, "Often Compare", "Rarely Compare")
+  ) %>%
+  select(comparison_behavior, depression_score, anxiety_score) %>%
+  pivot_longer(
+    cols = c(depression_score, anxiety_score),
+    names_to = "measure",
+    values_to = "score"
+  ) %>%
+  mutate(
+    measure = case_when(
+      measure == "depression_score" ~ "Depression Score",
+      measure == "anxiety_score" ~ "Anxiety Score"
+    )
+  )
+
+# Create boxplots
+p2 <- comparison_data %>%
+  ggplot(aes(x = comparison_behavior, y = score, fill = comparison_behavior)) +
+  geom_boxplot(alpha = 0.8, outlier.alpha = 0.6) +
+  geom_jitter(width = 0.2, alpha = 0.3, size = 0.6) +
+  facet_wrap(~ measure, scales = "free_y") +
+  scale_fill_manual(values = c("#4ECDC4", "#FF6B6B")) +
+  labs(
+    title = "Mental Health Outcomes by Social Comparison Behavior",
+    subtitle = "Individuals who compare themselves to others show higher distress",
+    x = "Social Comparison Behavior",
+    y = "Score (1-10)",
+    fill = "Comparison Behavior"
+  ) +
+  theme(
+    legend.position = "none",
+    strip.background = element_rect(fill = "grey90", color = NA),
+    plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 10, hjust = 0.5),
+    axis.title = element_text(size = 10, face = "bold"),
+    axis.text = element_text(size = 9),
+    strip.text = element_text(size = 10, face = "bold")
+  )
+
+print(p2)
+```
+
+```{r q2-statistical-tests}
+# Perform t-tests
+depression_test <- t.test(depression_score ~ compare_self, data = data)
+anxiety_test <- t.test(anxiety_score ~ compare_self, data = data)
+
+# Create summary statistics by group
+group_stats <- data %>%
+  group_by(compare_self) %>%
+  summarise(
+    Depression_Mean = round(mean(depression_score), 2),
+    Depression_SD = round(sd(depression_score), 2),
+    Anxiety_Mean = round(mean(anxiety_score), 2),
+    Anxiety_SD = round(sd(anxiety_score), 2),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    Group = ifelse(compare_self == 1, "Often Compare", "Rarely Compare")
+  ) %>%
+  select(Group, Depression_Mean, Depression_SD, Anxiety_Mean, Anxiety_SD)
+
+group_stats %>%
+  kable(
+    caption = "Mean Mental Health Scores by Social Comparison Behavior",
+    booktabs = TRUE,
+    col.names = c("Group", "Mean", "SD", "Mean", "SD"),
+    align = c("c", "c", "c", "c", "c")
+  ) %>%
+  kable_styling(
+    latex_options = c("striped", "hold_position"),
+    font_size = 10,
+    position = "center"
+  ) %>%
+  add_header_above(c(" " = 1, "Depression Score" = 2, "Anxiety Score" = 2))
+```
+
+```{r q2-test-results}
+# Statistical test results
+test_results <- data.frame(
+  Outcome = c("Depression Score", "Anxiety Score"),
+  `T-statistic` = c(round(depression_test$statistic, 3), round(anxiety_test$statistic, 3)),
+  `P-value` = c(
+    ifelse(depression_test$p.value < 0.001, "< 0.001", round(depression_test$p.value, 3)),
+    ifelse(anxiety_test$p.value < 0.001, "< 0.001", round(anxiety_test$p.value, 3))
+  ),
+  `Effect Size` = c(
+    round(abs(depression_test$statistic) / sqrt(nrow(data)), 3),
+    round(abs(anxiety_test$statistic) / sqrt(nrow(data)), 3)
+  ),
+  check.names = FALSE
+)
+
+test_results %>%
+  kable(
+    caption = "Statistical Tests: Mental Health Outcomes by Social Comparison",
+    booktabs = TRUE,
+    align = c("c", "c", "c", "c")
+  ) %>%
+  kable_styling(
+    latex_options = c("striped", "hold_position"),
+    font_size = 10,
+    position = "center"
+  )
+```
+
+**Key Finding:** Individuals who frequently compare themselves to others on social media show significantly higher depression and anxiety scores compared to those who rarely engage in social comparison.
+
+\newpage
+
+# Research Question 3: Do Breaks from Social Media Improve Mental Health?
+
+We examine whether taking breaks from social media leads to improvements in self-reported mental health and wellbeing.
+
+```{r q3-breaks-data}
+# Analyze break-taking behavior
+break_analysis <- data %>%
+  filter(took_break == 1) %>%
+  mutate(
+    outcome = ifelse(felt_better == 1, "Felt Better", "No Improvement")
+  )
+
+# Create summary table
+break_summary <- break_analysis %>%
+  count(outcome) %>%
+  mutate(
+    percentage = round(100 * n / sum(n), 1),
+    label = paste0(n, " (", percentage, "%)")
+  )
+```
+
+```{r q3-visualization, fig.cap="Mental Health Outcomes After Taking Social Media Breaks", fig.width=5, fig.height=4, out.width="75%"}
+# Create pie chart for break outcomes
+p3_pie <- break_summary %>%
+  ggplot(aes(x = "", y = n, fill = outcome)) +
+  geom_col(width = 1, color = "white", size = 2) +
+  coord_polar("y", start = 0) +
+  scale_fill_manual(values = c("Felt Better" = "#4ECDC4", "No Improvement" = "#FFE66D")) +
+  labs(
+    title = "Mental Health Outcomes After Social Media Breaks",
+    subtitle = paste0("Among ", sum(break_summary$n), " individuals who took breaks"),
+    fill = "Outcome"
+  ) +
+  theme_void() +
+  theme(
+    plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 10, hjust = 0.5),
+    legend.title = element_text(size = 10, face = "bold"),
+    legend.text = element_text(size = 9)
+  ) +
+  geom_text(aes(label = label), 
+            position = position_stack(vjust = 0.5),
+            size = 3.5, fontface = "bold")
+
+print(p3_pie)
+```
+
+```{r q3-comparison-chart, fig.cap="Break-Taking Behavior by Mental Health Status", fig.width=6, fig.height=4, out.width="80%"}
+# Create bar chart showing break-taking by mental health levels
+break_behavior <- data %>%
+  mutate(
+    loneliness_level = cut(loneliness_score, 
+                          breaks = c(0, 4, 7, 10), 
+                          labels = c("Low", "Medium", "High"),
+                          include.lowest = TRUE),
+    depression_level = cut(depression_score, 
+                          breaks = c(0, 4, 7, 10), 
+                          labels = c("Low", "Medium", "High"),
+                          include.lowest = TRUE)
+  ) %>%
+  select(loneliness_level, depression_level, took_break) %>%
+  pivot_longer(cols = c(loneliness_level, depression_level), 
+               names_to = "measure", values_to = "level") %>%
+  mutate(
+    measure = case_when(
+      measure == "loneliness_level" ~ "Loneliness Level",
+      measure == "depression_level" ~ "Depression Level"
+    )
+  ) %>%
+  group_by(measure, level) %>%
+  summarise(
+    break_rate = round(100 * mean(took_break), 1),
+    .groups = "drop"
+  ) %>%
+  filter(!is.na(level))
+
+p3_bar <- break_behavior %>%
+  ggplot(aes(x = level, y = break_rate, fill = level)) +
+  geom_col(alpha = 0.8) +
+  facet_wrap(~ measure) +
+  scale_fill_viridis_d(option = "plasma", begin = 0.3, end = 0.8) +
+  labs(
+    title = "Social Media Break-Taking by Mental Health Status",
+    subtitle = "Higher distress levels associated with more break-taking",
+    x = "Mental Health Level",
+    y = "Percentage Taking Breaks (%)",
+    fill = "Level"
+  ) +
+  theme(
+    legend.position = "none",
+    strip.background = element_rect(fill = "grey90", color = NA),
+    plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 10, hjust = 0.5),
+    axis.title = element_text(size = 10, face = "bold"),
+    axis.text = element_text(size = 9),
+    strip.text = element_text(size = 10, face = "bold")
+  ) +
+  geom_text(aes(label = paste0(break_rate, "%")), 
+            vjust = -0.5, fontface = "bold", size = 3)
+
+print(p3_bar)
+```
+
+```{r q3-results-table}
+# Create comprehensive results table
+break_results <- data %>%
+  summarise(
+    `Total Participants` = as.character(n()),
+    `Took Social Media Break` = as.character(sum(took_break)),
+    `Break-Taking Rate` = paste0(round(100 * mean(took_break), 1), "%"),
+    `Felt Better After Break` = as.character(sum(felt_better, na.rm = TRUE)),
+    `Improvement Rate` = paste0(round(100 * mean(felt_better, na.rm = TRUE), 1), "%")
+  ) %>%
+  pivot_longer(everything(), names_to = "Metric", values_to = "Value")
+
+break_results %>%
+  kable(
+    caption = "Social Media Break Analysis Results",
+    booktabs = TRUE,
+    align = c("c", "c")
+  ) %>%
+  kable_styling(
+    latex_options = c("striped", "hold_position"),
+    font_size = 10,
+    position = "center"
+  )
+```
+
+**Key Finding:** Among the `r sum(data$took_break)` participants who took social media breaks, `r round(100 * mean(data$felt_better, na.rm = TRUE), 1)`% reported feeling better afterward, suggesting that temporary disconnection from social media can provide mental health benefits.
+
+\newpage
+
+# Discussion and Limitations
+
+The analysis reveals three important patterns consistent with recent research literature:
+
+## Key Findings
+
+- **Loneliness and Usage**: A significant positive correlation exists between daily social media usage and loneliness scores, supporting concerns about digital connectivity paradoxes.
+
+- **Social Comparison Effects**: Individuals who frequently compare themselves to others on social media show markedly higher depression and anxiety scores, highlighting the psychological risks of upward social comparison.
+
+- **Break Benefits**: The majority of participants who took social media breaks reported improved mental health, suggesting that periodic digital detox may be beneficial.
+
+## Study Limitations
+
+- **Simulated Data**: This analysis uses simulated data based on research patterns rather than real participant responses.
+- **Cross-sectional Design**: The correlational nature of the analysis prevents causal inference.
+- **Self-reported Measures**: All mental health outcomes rely on self-report rather than clinical assessment.
+- **Sample Characteristics**: The simulated sample may not represent broader population demographics.
+
+## Implications for Future Research
+
+Future studies should employ longitudinal designs with real participant data, incorporate objective measures of social media usage, and examine potential moderating factors such as social support and digital literacy.
+
+\newpage
+
+# Conclusion
+
+This analysis demonstrates significant associations between social media usage patterns and mental health outcomes. The findings suggest that:
+
+1. **Increased social media usage correlates with higher loneliness**, indicating potential risks of excessive digital engagement.
+
+2. **Social comparison behavior on social media platforms is strongly linked to elevated anxiety and depression**, supporting theoretical models of social comparison theory in digital contexts.
+
+3. **Taking breaks from social media appears beneficial for mental health**, with three-quarters of participants reporting improvements after digital detox periods.
+
+These patterns align with contemporary research highlighting both the benefits and risks of social media engagement. The results underscore the importance of mindful social media use and suggest that periodic breaks may serve as a valuable mental health intervention.
+
+While this analysis uses simulated data to demonstrate analytical approaches, the patterns observed reflect genuine concerns documented in peer-reviewed literature. Future research with real participant data will be essential to validate these findings and develop evidence-based interventions for healthy social media use.
+
+\newpage
+
+# References
+
+1. Aalbers, G., McNally, R. J., Heeren, A., de Wit, S., & Fried, E. I. (2019). Social media and depression symptoms: A network perspective. *Journal of Experimental Psychology: General*, 148(8), 1454-1462.
+
+2. Nesi, J., Choukas-Bradley, S., & Prinstein, M. J. (2018). Transformation of adolescent peer relations in the social media context: Part 1—A theoretical framework and application to dyadic peer relationships. *Clinical Child and Family Psychology Review*, 21(3), 267-294.
+
+3. Primack, B. A., Shensa, A., Sidani, J. E., et al. (2017). Social media use and perceived social isolation among young adults in the U.S. *American Journal of Preventive Medicine*, 53(1), 1-8.
+
+4. Shakya, H. B., & Christakis, N. A. (2017). Association of Facebook use with compromised well-being: A longitudinal study. *American Journal of Epidemiology*, 185(3), 203-211.
+
+5. Tromholt, M. (2016). The Facebook experiment: Quitting Facebook leads to higher levels of well-being. *Cyberpsychology, Behavior, and Social Networking*, 19(11), 661-666.
+
+6. Verduyn, P., Lee, D. S., Park, J., et al. (2015). Passive Facebook usage undermines affective well-being: Experimental and longitudinal evidence. *Journal of Experimental Psychology: General*, 144(2), 480-488.
+
+**Additional Resources:**
+- https://scientiapsychiatrica.com/index.php/SciPsy/article/view/175  
+- https://pmc.ncbi.nlm.nih.gov/articles/PMC7785056/  
+- https://pubmed.ncbi.nlm.nih.gov/35512731/  
+- https://narraj.org/main/article/view/786
